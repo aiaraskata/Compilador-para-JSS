@@ -23,8 +23,8 @@ decl
 varDecl
     : (LET | CONST) tipo ID (ASSIGN expr | (COMMA ID)*) SEMI
                                                                 # VarSimples
-    | (LET | CONST) tipo LBRACK expr RBRACK ID
-        (ASSIGN LBRACK exprList? RBRACK)? SEMI
+    | (LET | CONST) tipo dimensoes ID
+        (ASSIGN inicializadorVetor)? SEMI
                                                                 # VarVetor
     | (LET | CONST) ID ID (ASSIGN expr)? SEMI                    # VarObjeto
     ;
@@ -45,8 +45,29 @@ paramList
 
 param
     : tipo ID
-    | tipo LBRACK RBRACK ID
+    | tipo dimensoesVazias ID
     | ID ID
+    ;
+
+// Vetores podem possuir uma ou mais dimensoes. Na declaracao, cada dimensao
+// informa seu tamanho; nos parametros, somente a quantidade de dimensoes.
+dimensoes
+    : (LBRACK expr RBRACK)+
+    ;
+
+dimensoesVazias
+    : (LBRACK RBRACK)+
+    ;
+
+// Inicializadores podem ser aninhados para representar vetores
+// multidimensionais, por exemplo: [[1, 2], [3, 4]].
+inicializadorVetor
+    : LBRACK (elementoVetor (COMMA elementoVetor)*)? RBRACK
+    ;
+
+elementoVetor
+    : expr
+    | inicializadorVetor
     ;
 
 // Classes possuem atributos antes do construtor e dos metodos.
@@ -78,7 +99,7 @@ bloco
 stmt
     : varDecl                                                     # StmtVarDecl
     | ID atribComp expr SEMI                                      # StmtAssign
-    | ID LBRACK expr RBRACK atribComp expr SEMI                   # StmtVetorAssign
+    | ID indices atribComp expr SEMI                              # StmtVetorAssign
     | (ID | THIS) DOT ID atribComp expr SEMI                      # StmtAtribObjeto
     | IF LPAREN expr RPAREN bloco
         (ELSE IF LPAREN expr RPAREN bloco)*
@@ -105,8 +126,8 @@ atribComp
 // No cabecalho do for a declaracao nao consome o primeiro ponto e virgula.
 forInit
     : (LET | CONST) tipo ID (ASSIGN expr | (COMMA ID)*)
-    | (LET | CONST) tipo LBRACK expr RBRACK ID
-        (ASSIGN LBRACK exprList? RBRACK)?
+    | (LET | CONST) tipo dimensoes ID
+        (ASSIGN inicializadorVetor)?
     | (LET | CONST) ID ID (ASSIGN expr)?
     | ID atribComp expr
     ;
@@ -114,6 +135,10 @@ forInit
 forUpdate
     : ID atribComp expr
     | op=(INC | DEC) ID
+    ;
+
+indices
+    : (LBRACK expr RBRACK)+
     ;
 
 chamadaFuncao
@@ -151,7 +176,7 @@ expr
     | LPAREN expr RPAREN                                          # ExprParen
     | NEW ID LPAREN exprList? RPAREN                              # ExprNew
     | chamadaFuncao                                               # ExprChamada
-    | ID LBRACK expr RBRACK                                      # ExprVetor
+    | ID indices                                                 # ExprVetor
     | (ID | THIS) DOT ID                                         # ExprAtribObjeto
     | INT_LIT                                                     # ExprInt
     | REAL_LIT                                                    # ExprReal

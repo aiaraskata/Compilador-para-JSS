@@ -70,7 +70,8 @@ rejeitados.
 ## Recursos sintáticos reconhecidos
 
 - tipos `int`, `real`, `str` e `bool`;
-- variáveis, constantes, listas de identificadores, vetores e objetos;
+- variáveis, constantes, listas de identificadores, vetores
+  multidimensionais e objetos;
 - funções, parâmetros, chamadas e recursão;
 - classes, atributos, construtores, métodos, `new`, `this` e `null`;
 - atribuições simples e compostas;

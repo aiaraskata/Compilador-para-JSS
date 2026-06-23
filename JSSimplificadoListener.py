@@ -89,6 +89,42 @@ class JSSimplificadoListener(ParseTreeListener):
         pass
 
 
+    # Enter a parse tree produced by JSSimplificadoParser#dimensoes.
+    def enterDimensoes(self, ctx:JSSimplificadoParser.DimensoesContext):
+        pass
+
+    # Exit a parse tree produced by JSSimplificadoParser#dimensoes.
+    def exitDimensoes(self, ctx:JSSimplificadoParser.DimensoesContext):
+        pass
+
+
+    # Enter a parse tree produced by JSSimplificadoParser#dimensoesVazias.
+    def enterDimensoesVazias(self, ctx:JSSimplificadoParser.DimensoesVaziasContext):
+        pass
+
+    # Exit a parse tree produced by JSSimplificadoParser#dimensoesVazias.
+    def exitDimensoesVazias(self, ctx:JSSimplificadoParser.DimensoesVaziasContext):
+        pass
+
+
+    # Enter a parse tree produced by JSSimplificadoParser#inicializadorVetor.
+    def enterInicializadorVetor(self, ctx:JSSimplificadoParser.InicializadorVetorContext):
+        pass
+
+    # Exit a parse tree produced by JSSimplificadoParser#inicializadorVetor.
+    def exitInicializadorVetor(self, ctx:JSSimplificadoParser.InicializadorVetorContext):
+        pass
+
+
+    # Enter a parse tree produced by JSSimplificadoParser#elementoVetor.
+    def enterElementoVetor(self, ctx:JSSimplificadoParser.ElementoVetorContext):
+        pass
+
+    # Exit a parse tree produced by JSSimplificadoParser#elementoVetor.
+    def exitElementoVetor(self, ctx:JSSimplificadoParser.ElementoVetorContext):
+        pass
+
+
     # Enter a parse tree produced by JSSimplificadoParser#classDecl.
     def enterClassDecl(self, ctx:JSSimplificadoParser.ClassDeclContext):
         pass
@@ -284,6 +320,15 @@ class JSSimplificadoListener(ParseTreeListener):
 
     # Exit a parse tree produced by JSSimplificadoParser#forUpdate.
     def exitForUpdate(self, ctx:JSSimplificadoParser.ForUpdateContext):
+        pass
+
+
+    # Enter a parse tree produced by JSSimplificadoParser#indices.
+    def enterIndices(self, ctx:JSSimplificadoParser.IndicesContext):
+        pass
+
+    # Exit a parse tree produced by JSSimplificadoParser#indices.
+    def exitIndices(self, ctx:JSSimplificadoParser.IndicesContext):
         pass
 
 

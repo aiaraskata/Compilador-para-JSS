@@ -54,6 +54,26 @@ class JSSimplificadoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by JSSimplificadoParser#dimensoes.
+    def visitDimensoes(self, ctx:JSSimplificadoParser.DimensoesContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by JSSimplificadoParser#dimensoesVazias.
+    def visitDimensoesVazias(self, ctx:JSSimplificadoParser.DimensoesVaziasContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by JSSimplificadoParser#inicializadorVetor.
+    def visitInicializadorVetor(self, ctx:JSSimplificadoParser.InicializadorVetorContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by JSSimplificadoParser#elementoVetor.
+    def visitElementoVetor(self, ctx:JSSimplificadoParser.ElementoVetorContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by JSSimplificadoParser#classDecl.
     def visitClassDecl(self, ctx:JSSimplificadoParser.ClassDeclContext):
         return self.visitChildren(ctx)
@@ -161,6 +181,11 @@ class JSSimplificadoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by JSSimplificadoParser#forUpdate.
     def visitForUpdate(self, ctx:JSSimplificadoParser.ForUpdateContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by JSSimplificadoParser#indices.
+    def visitIndices(self, ctx:JSSimplificadoParser.IndicesContext):
         return self.visitChildren(ctx)
 
 
