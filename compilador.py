@@ -8,6 +8,7 @@ from antlr4.error.ErrorListener import ErrorListener
 
 from JSSimplificadoLexer import JSSimplificadoLexer
 from JSSimplificadoParser import JSSimplificadoParser
+from AnalisadorSemantico import analisar_arvore
 
 
 @dataclass(frozen=True)
@@ -63,11 +64,14 @@ def analisar_codigo(codigo: str) -> list[Diagnostico]:
     parser = JSSimplificadoParser(tokens)
     parser.removeErrorListeners()
     parser.addErrorListener(erros_sintaticos)
-    parser.prog()
+    tree = parser.prog()
 
     diagnosticos = (
         erros_lexicos.diagnosticos + erros_sintaticos.diagnosticos
     )
+    if not diagnosticos:
+        diagnosticos.extend(analisar_arvore(tree))
+
     return sorted(
         diagnosticos,
         key=lambda erro: (erro.linha, erro.coluna, erro.categoria),
@@ -84,7 +88,7 @@ def main() -> int:
         print("Programa rejeitado.")
         return 1
 
-    print("Programa aceito: analise lexica e sintatica concluida com sucesso.")
+    print("Programa aceito: analises lexica, sintatica e semantica concluidas com sucesso.")
     return 0
 
 
