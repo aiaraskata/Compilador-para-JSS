@@ -271,6 +271,8 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
                 self.declarar(classe.ID(), "classe", classe.ID().getText())
         for decl in ctx.decl():
             self.visit(decl)
+        for stmt in ctx.stmt():
+            self.visit(stmt)
         return None
 
     def visitVarSimples(self, ctx: JSSimplificadoParser.VarSimplesContext):

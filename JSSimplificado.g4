@@ -4,10 +4,10 @@ grammar JSSimplificado;
 // REGRAS SINTATICAS
 // ============================================================================
 
-// Um programa JSS pode conter declaracoes globais de variaveis, funcoes e
-// classes. A funcao main e facultativa, portanto nao aparece como obrigatoria.
+// Um programa JSS pode conter declaracoes globais e comandos soltos no escopo
+// global. A funcao main e facultativa, portanto nao aparece como obrigatoria.
 prog
-    : decl* EOF
+    : (decl | stmt)* EOF
     ;
 
 decl
