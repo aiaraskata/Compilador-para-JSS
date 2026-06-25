@@ -1,0 +1,12 @@
+# Ignorar arquivos de ambiente e senhas
+.env
+.env.local
+
+# Ambiente Virtual
+.venv/
+venv/
+ENV/
+
+# Arquivos de bytecode do Python
+__pycache__/
+*.py[cod]
