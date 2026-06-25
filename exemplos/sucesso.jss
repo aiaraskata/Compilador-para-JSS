@@ -33,5 +33,5 @@ function void main() {
     }
 
     console.log("Fatorial:", fatorial(numero));
-    console.log("Soma:", ponto.soma());
+    
 }
