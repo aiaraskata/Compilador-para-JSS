@@ -153,6 +153,8 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         return simbolo
 
     def texto_tipo_retorno(self, ctx: JSSimplificadoParser.TipoRetornoContext) -> str:
+        if ctx.tipo() is not None:
+            return ctx.tipo().getText()
         return ctx.getText()
 
     def texto_tipo_parametro(self, ctx: JSSimplificadoParser.ParamContext) -> str:
@@ -168,6 +170,11 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
             return 0
         return len(ctx.LBRACK())
 
+    def dimensoes_tipo_retorno(self, ctx: JSSimplificadoParser.TipoRetornoContext) -> int:
+        if ctx is None or ctx.tipo() is None:
+            return 0
+        return self.quantidade_dimensoes(ctx.dimensoes())
+
     def coletar_parametros(self, param_list_ctx: JSSimplificadoParser.ParamListContext | None) -> tuple[InfoParametro, ...]:
         if param_list_ctx is None:
             return ()
@@ -176,7 +183,9 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
             ids = param_ctx.ID()
             nome = ids[-1].getText()
             tipo = self.texto_tipo_parametro(param_ctx)
-            dims = self.quantidade_dimensoes(param_ctx.dimensoesVazias())
+            dims = self.quantidade_dimensoes(param_ctx.dimensoes())
+            if dims == 0:
+                dims = self.quantidade_dimensoes(param_ctx.dimensoesVazias())
             resultado.append(InfoParametro(nome=nome, tipo=tipo, dimensoes=dims))
         return tuple(resultado)
 
@@ -256,8 +265,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
             if funcao is not None:
                 tipo_ret = self.texto_tipo_retorno(funcao.tipoRetorno())
                 nome_func = funcao.ID().getText()
-                if "[" in tipo_ret or "]" in tipo_ret:
-                    self.erro(funcao.ID().symbol, f"Funcao '{nome_func}' nao pode retornar um vetor.")
                 params = self.coletar_parametros(funcao.paramList())
                 if nome_func == "main" and len(params) > 0:
                     self.erro(funcao.ID().symbol, "A funcao 'main' nao deve possuir parametros.")
@@ -265,6 +272,7 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
                     funcao.ID(),
                     "funcao",
                     tipo_ret,
+                    dimensoes=self.dimensoes_tipo_retorno(funcao.tipoRetorno()),
                     parametros=params,
                 )
             elif classe is not None:
@@ -329,7 +337,7 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
             nome,
             "parametro",
             tipo,
-            self.quantidade_dimensoes(ctx.dimensoesVazias()),
+            self.quantidade_dimensoes(ctx.dimensoes()) or self.quantidade_dimensoes(ctx.dimensoesVazias()),
         )
         return None
 
@@ -342,7 +350,7 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
             self.visit(atributo)
             ids = atributo.ID()
             if atributo.tipo() is not None:
-                atributos[ids[0].getText()] = atributo.tipo().getText()
+                atributos[ids[-1].getText()] = atributo.tipo().getText()
             elif len(ids) >= 2:
                 atributos[ids[1].getText()] = ids[0].getText()
 
@@ -351,8 +359,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         metodos: dict[str, Simbolo] = {}
         for metodo in ctx.metodoDecl():
             tipo_ret = self.texto_tipo_retorno(metodo.tipoRetorno())
-            if "[" in tipo_ret or "]" in tipo_ret:
-                self.erro(metodo.ID().symbol, f"Metodo '{metodo.ID().getText()}' nao pode retornar um vetor.")
             self.visit(metodo)
             nome_metodo = metodo.ID().getText()
             simbolo = self.tabela.buscar(nome_metodo)
@@ -367,20 +373,22 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         ids = ctx.ID()
         if ctx.tipo() is not None:
             tipo = ctx.tipo().getText()
-            nome = ids[0]
+            nome = ids[-1]
         else:
             self.exigir_declarado(ids[0], {"classe"}, "classe")
             tipo = ids[0].getText()
             nome = ids[1]
-        self.declarar(nome, "atributo", tipo)
+        dimensoes = self.quantidade_dimensoes(ctx.dimensoes())
+        self.declarar(nome, "atributo", tipo, dimensoes=dimensoes)
+        if ctx.dimensoes() is not None:
+            self._verificar_dim(ctx.dimensoes())
         return None
 
     def visitConstructorDecl(self, ctx: JSSimplificadoParser.ConstructorDeclContext):
         self.tabela.abrir_escopo()
         if ctx.paramList() is not None:
             self.visit(ctx.paramList())
-        for stmt in ctx.stmtConstructor():
-            self.visit(stmt)
+        self.visit(ctx.bloco())
         self.tabela.fechar_escopo()
         return None
 
@@ -390,6 +398,7 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
             ctx.ID(),
             "metodo",
             self.texto_tipo_retorno(ctx.tipoRetorno()),
+            dimensoes=self.dimensoes_tipo_retorno(ctx.tipoRetorno()),
             parametros=params,
         )
         self._pilha_contexto.append(self.texto_tipo_retorno(ctx.tipoRetorno()))
@@ -595,6 +604,39 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
                     self.erro(ctx.ID().symbol, f"atribuicao incompativel em vetor: esperado '{simbolo.tipo}', obtido '{tipo_valor}'.")
         return None
 
+    def visitStmtVetorObjetoAssign(self, ctx: JSSimplificadoParser.StmtVetorObjetoAssignContext):
+        if ctx.THIS() is not None:
+            simbolo = self.tabela.buscar(ctx.ID(0).getText())
+            token_nome = ctx.ID(0)
+        else:
+            simbolo_obj = self.exigir_declarado(ctx.ID(0), {"variavel", "parametro", "atributo"}, "objeto")
+            simbolo = None
+            token_nome = ctx.ID(1)
+            if simbolo_obj is not None:
+                info = self._classes.get(simbolo_obj.tipo)
+                nome_atributo = ctx.ID(1).getText()
+                if info is None:
+                    self.erro(ctx.ID(1).symbol, f"classe '{simbolo_obj.tipo}' nao possui informacoes registradas.")
+                elif nome_atributo not in info.atributos:
+                    self.erro(ctx.ID(1).symbol, f"atributo '{nome_atributo}' nao existe na classe '{simbolo_obj.tipo}'.")
+
+        self._verificar_index(ctx.indices())
+
+        if simbolo is not None:
+            num_indices = self.quantidade_dimensoes(ctx.indices())
+            if simbolo.dimensoes == 0:
+                self.erro(token_nome.symbol, f"'{simbolo.nome}' nao e um array.")
+            elif num_indices != simbolo.dimensoes:
+                self.erro(token_nome.symbol, f"'{simbolo.nome}' tem {simbolo.dimensoes} dimensoes, obtido {num_indices}.")
+            else:
+                tipo_valor = self.tipo_expr(ctx.expr())
+                if tipo_valor is not None and not tipos_compativeis(simbolo.tipo, tipo_valor):
+                    self.erro(token_nome.symbol, f"atribuicao incompativel em vetor: esperado '{simbolo.tipo}', obtido '{tipo_valor}'.")
+        else:
+            self.visit(ctx.expr())
+
+        return None
+
     def visitStmtAtribObjeto(self, ctx: JSSimplificadoParser.StmtAtribObjetoContext):
         if ctx.THIS() is None:
             simbolo = self.exigir_declarado(ctx.ID(0), {"variavel", "parametro", "atributo"})
@@ -751,6 +793,37 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
                 return None
             return simbolo.tipo
         return None
+
+    def visitExprVetorObjeto(self, ctx: JSSimplificadoParser.ExprVetorObjetoContext):
+        if ctx.THIS() is not None:
+            simbolo = self.tabela.buscar(ctx.ID(0).getText())
+            token_nome = ctx.ID(0)
+            if simbolo is None:
+                self.erro(token_nome.symbol, f"atributo '{token_nome.getText()}' nao foi declarado.")
+                return None
+        else:
+            simbolo_obj = self.exigir_declarado(ctx.ID(0), {"variavel", "parametro", "atributo"}, "objeto")
+            if simbolo_obj is None:
+                return None
+            info = self._classes.get(simbolo_obj.tipo)
+            nome_atributo = ctx.ID(1).getText()
+            if info is None:
+                self.erro(ctx.ID(1).symbol, f"classe '{simbolo_obj.tipo}' nao possui informacoes registradas.")
+                return None
+            if nome_atributo not in info.atributos:
+                self.erro(ctx.ID(1).symbol, f"atributo '{nome_atributo}' nao existe na classe '{simbolo_obj.tipo}'.")
+                return None
+            return info.atributos[nome_atributo]
+
+        self._verificar_index(ctx.indices())
+        num_indices = self.quantidade_dimensoes(ctx.indices())
+        if simbolo.dimensoes == 0:
+            self.erro(token_nome.symbol, f"'{simbolo.nome}' nao e um array.")
+            return None
+        if num_indices != simbolo.dimensoes:
+            self.erro(token_nome.symbol, f"'{simbolo.nome}' tem {simbolo.dimensoes} dimensoes, obtido {num_indices}.")
+            return None
+        return simbolo.tipo
 
     def visitExprAtribObjeto(self, ctx: JSSimplificadoParser.ExprAtribObjetoContext):
         if ctx.THIS() is None:

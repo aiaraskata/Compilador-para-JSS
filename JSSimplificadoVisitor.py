@@ -119,6 +119,11 @@ class JSSimplificadoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by JSSimplificadoParser#StmtVetorObjetoAssign.
+    def visitStmtVetorObjetoAssign(self, ctx:JSSimplificadoParser.StmtVetorObjetoAssignContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by JSSimplificadoParser#StmtAtribObjeto.
     def visitStmtAtribObjeto(self, ctx:JSSimplificadoParser.StmtAtribObjetoContext):
         return self.visitChildren(ctx)
@@ -296,6 +301,11 @@ class JSSimplificadoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by JSSimplificadoParser#ExprNew.
     def visitExprNew(self, ctx:JSSimplificadoParser.ExprNewContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by JSSimplificadoParser#ExprVetorObjeto.
+    def visitExprVetorObjeto(self, ctx:JSSimplificadoParser.ExprVetorObjetoContext):
         return self.visitChildren(ctx)
 
 

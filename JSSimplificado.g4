@@ -24,7 +24,7 @@ varDecl
     : (LET | CONST) tipo ID (ASSIGN expr | (COMMA ID)*) SEMI
                                                                 # VarSimples
     | (LET | CONST) tipo dimensoes ID
-        (ASSIGN inicializadorVetor)? SEMI
+        (ASSIGN (inicializadorVetor | expr))? SEMI
                                                                 # VarVetor
     | (LET | CONST) ID ID (ASSIGN expr)? SEMI                    # VarObjeto
     ;
@@ -34,7 +34,7 @@ funcDecl
     ;
 
 tipoRetorno
-    : tipo
+    : tipo dimensoes?
     | ID
     | VOID
     ;
@@ -44,8 +44,7 @@ paramList
     ;
 
 param
-    : tipo ID
-    | tipo dimensoesVazias ID
+    : tipo (dimensoes | dimensoesVazias)? ID
     | ID ID
     ;
 
@@ -76,12 +75,12 @@ classDecl
     ;
 
 atributo
-    : (tipo | ID) ID SEMI
+    : tipo dimensoes? ID SEMI
+    | ID ID SEMI
     ;
 
 constructorDecl
-    : ID CONSTRUCTOR LPAREN paramList? RPAREN
-      LBRACE stmtConstructor* RBRACE
+    : ID CONSTRUCTOR LPAREN paramList? RPAREN bloco
     ;
 
 stmtConstructor
@@ -100,6 +99,7 @@ stmt
     : varDecl                                                     # StmtVarDecl
     | ID atribComp expr SEMI                                      # StmtAssign
     | ID indices atribComp expr SEMI                              # StmtVetorAssign
+    | (ID | THIS) DOT ID indices atribComp expr SEMI              # StmtVetorObjetoAssign
     | (ID | THIS) DOT ID atribComp expr SEMI                      # StmtAtribObjeto
     | IF LPAREN expr RPAREN bloco
         (ELSE IF LPAREN expr RPAREN bloco)*
@@ -127,7 +127,7 @@ atribComp
 forInit
     : (LET | CONST) tipo ID (ASSIGN expr | (COMMA ID)*)
     | (LET | CONST) tipo dimensoes ID
-        (ASSIGN inicializadorVetor)?
+        (ASSIGN (inicializadorVetor | expr))?
     | (LET | CONST) ID ID (ASSIGN expr)?
     | ID atribComp expr
     ;
@@ -177,6 +177,7 @@ expr
     | NEW ID LPAREN exprList? RPAREN                              # ExprNew
     | chamadaFuncao                                               # ExprChamada
     | ID indices                                                 # ExprVetor
+    | (ID | THIS) DOT ID indices                                 # ExprVetorObjeto
     | (ID | THIS) DOT ID                                         # ExprAtribObjeto
     | INT_LIT                                                     # ExprInt
     | REAL_LIT                                                    # ExprReal

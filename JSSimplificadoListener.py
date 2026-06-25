@@ -206,6 +206,15 @@ class JSSimplificadoListener(ParseTreeListener):
         pass
 
 
+    # Enter a parse tree produced by JSSimplificadoParser#StmtVetorObjetoAssign.
+    def enterStmtVetorObjetoAssign(self, ctx:JSSimplificadoParser.StmtVetorObjetoAssignContext):
+        pass
+
+    # Exit a parse tree produced by JSSimplificadoParser#StmtVetorObjetoAssign.
+    def exitStmtVetorObjetoAssign(self, ctx:JSSimplificadoParser.StmtVetorObjetoAssignContext):
+        pass
+
+
     # Enter a parse tree produced by JSSimplificadoParser#StmtAtribObjeto.
     def enterStmtAtribObjeto(self, ctx:JSSimplificadoParser.StmtAtribObjetoContext):
         pass
@@ -527,6 +536,15 @@ class JSSimplificadoListener(ParseTreeListener):
 
     # Exit a parse tree produced by JSSimplificadoParser#ExprNew.
     def exitExprNew(self, ctx:JSSimplificadoParser.ExprNewContext):
+        pass
+
+
+    # Enter a parse tree produced by JSSimplificadoParser#ExprVetorObjeto.
+    def enterExprVetorObjeto(self, ctx:JSSimplificadoParser.ExprVetorObjetoContext):
+        pass
+
+    # Exit a parse tree produced by JSSimplificadoParser#ExprVetorObjeto.
+    def exitExprVetorObjeto(self, ctx:JSSimplificadoParser.ExprVetorObjetoContext):
         pass
 
 
