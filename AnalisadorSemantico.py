@@ -52,7 +52,7 @@ class Simbolo:
     tipo: str
     linha: int
     dimensoes: int = 0
-    is_const: bool = False  # Rastreia se foi declarado com 'const' para proteger vetores/objetos
+    is_const: bool = False
     parametros: tuple[InfoParametro, ...] | None = None
 
 
@@ -89,6 +89,8 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         self.tabela = TabelaDeSimbolos()
         self.diagnosticos: list[DiagnosticoSemantico] = []
         self._pilha_contexto: list[str] = []
+        self._pilha_tem_return_valor: list[bool] = []
+        self._profundidade_loop = 0
         self._classes: dict[str, InfoClasse] = {}
 
     @property
@@ -315,16 +317,21 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         return None
 
     def visitFuncDecl(self, ctx: JSSimplificadoParser.FuncDeclContext):
-        self._pilha_contexto.append(self.texto_tipo_retorno(ctx.tipoRetorno()))
+        tipo_retorno = self.texto_tipo_retorno(ctx.tipoRetorno())
+        self._pilha_contexto.append(tipo_retorno)
+        self._pilha_tem_return_valor.append(False)
         self.tabela.abrir_escopo()
         if ctx.paramList() is not None:
             self.visit(ctx.paramList())
 
         if ctx.bloco() is not None:
             self.visit(ctx.bloco())
-            
+
         self.tabela.fechar_escopo()
-        self._pilha_contexto.pop()  
+        tem_return_valor = self._pilha_tem_return_valor.pop()
+        self._pilha_contexto.pop()
+        if tipo_retorno != "void" and not tem_return_valor:
+            self.erro(ctx.ID().symbol, f"funcao '{ctx.ID().getText()}' deve retornar '{tipo_retorno}'.")
         return None
 
     def visitParam(self, ctx: JSSimplificadoParser.ParamContext):
@@ -401,18 +408,25 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
             dimensoes=self.dimensoes_tipo_retorno(ctx.tipoRetorno()),
             parametros=params,
         )
-        self._pilha_contexto.append(self.texto_tipo_retorno(ctx.tipoRetorno()))
+        tipo_retorno = self.texto_tipo_retorno(ctx.tipoRetorno())
+        self._pilha_contexto.append(tipo_retorno)
+        self._pilha_tem_return_valor.append(False)
         self.tabela.abrir_escopo()
         if ctx.paramList() is not None:
             self.visit(ctx.paramList())
         self.visit(ctx.bloco())
         self.tabela.fechar_escopo()
+        tem_return_valor = self._pilha_tem_return_valor.pop()
         self._pilha_contexto.pop()
+        if tipo_retorno != "void" and not tem_return_valor:
+            self.erro(ctx.ID().symbol, f"metodo '{ctx.ID().getText()}' deve retornar '{tipo_retorno}'.")
         return None
-    
+
     def visitStmtReturn(self, ctx: JSSimplificadoParser.StmtReturnContext):
         tipo = self._pilha_contexto[-1] if self._pilha_contexto else "void"
         if ctx.expr() is not None:
+            if self._pilha_tem_return_valor:
+                self._pilha_tem_return_valor[-1] = True
             current_tipo = self.tipo_expr(ctx.expr())
             if tipo == "void":
                 self.erro(ctx.start, "funcao 'void' nao deve retornar um valor.")
@@ -445,7 +459,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         if tipo_esq is None or tipo_dir is None:
             return None
 
-        # Regra III / Tabela 1: Concatenação de string caso um operando seja str
         if ctx.op.text == "+":
             if tipo_esq == "str" or tipo_dir == "str":
                 return "str"
@@ -486,7 +499,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         tipo_dir = self.tipo_expr(ctx.expr(1))
         if tipo_esq is None or tipo_dir is None:
             return None
-        # Tabela 1: Operador ** aplica-se somente a inteiros e retorna inteiro
         if tipo_esq != "int" or tipo_dir != "int":
             self.erro(ctx.op, f"operacao de potencia '**' exige inteiros, obtidos '{tipo_esq}' e '{tipo_dir}'.")
             return None
@@ -525,7 +537,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         if tipo_esq is None or tipo_dir is None:
             return "bool"
 
-        # Tabela 1: Relacionais operam em todos os primitivos, exceto vetor (dimensoes > 0)
         if dims_esq > 0 or dims_dir > 0:
             self.erro(ctx.op, f"operador '{ctx.op.text}' nao pode ser aplicado a vetores.")
         return "bool"
@@ -571,7 +582,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         tipo_valor = self.tipo_expr(ctx.expr())
         op_texto = ctx.atribComp().getText()
         if simbolo is not None:
-            # Regra 4.1: Proibir reatribuicao direta em constantes
             if simbolo.is_const:
                 self.erro(ctx.ID().symbol, f"Identificador '{simbolo.nome}' e constante e nao pode ser alterado.")
                 return None
@@ -589,7 +599,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         self._verificar_index(ctx.indices())
 
         if simbolo is not None:
-            # Regra 4.2.2: Vetores constantes nao podem ter seus valores alterados
             if simbolo.is_const:
                 self.erro(ctx.ID().symbol, f"Vetor '{simbolo.nome}' e constante e nao pode ser modificado.")
                 return None
@@ -640,7 +649,6 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
     def visitStmtAtribObjeto(self, ctx: JSSimplificadoParser.StmtAtribObjetoContext):
         if ctx.THIS() is None:
             simbolo = self.exigir_declarado(ctx.ID(0), {"variavel", "parametro", "atributo"})
-            # Regra 4.2.2: Objeto constante nao pode ter seus atributos alterados
             if simbolo is not None and simbolo.is_const:
                 self.erro(ctx.ID(0).symbol, f"Objeto '{simbolo.nome}' e constante e nao pode ter seus atributos modificados.")
         self.visit(ctx.expr())
@@ -659,7 +667,9 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         tipo_cond = self.tipo_expr(ctx.expr())
         if tipo_cond is not None and tipo_cond != "bool":
             self.erro(ctx.expr().start, f"condicao do 'while' deve ser 'bool', obtido '{tipo_cond}'.")
+        self._profundidade_loop += 1
         self.visit(ctx.bloco())
+        self._profundidade_loop -= 1
         return None
 
     def visitStmtFor(self, ctx: JSSimplificadoParser.StmtForContext):
@@ -672,8 +682,15 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
                 self.erro(ctx.expr().start, f"condicao do 'for' deve ser 'bool', obtido '{tipo_cond}'.")
         if ctx.forUpdate() is not None:
             self.visit(ctx.forUpdate())
+        self._profundidade_loop += 1
         self.visit(ctx.bloco())
+        self._profundidade_loop -= 1
         self.tabela.fechar_escopo()
+        return None
+
+    def visitStmtBreak(self, ctx: JSSimplificadoParser.StmtBreakContext):
+        if self._profundidade_loop == 0:
+            self.erro(ctx.start, "'break' so pode ser usado dentro de laco 'while' ou 'for'.")
         return None
 
     def visitStmtConsoleLog(self, ctx: JSSimplificadoParser.StmtConsoleLogContext):
@@ -749,10 +766,10 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
                         self.erro(ctx.ID(1).symbol, f"metodo '{nome_metodo}' nao existe na classe '{nome_classe}'.")
                     else:
                         simbolo_metodo = info.metodos[nome_metodo]
-                        args_info: list[tuple[str | None, int]] = []  
+                        args_info: list[tuple[str | None, int]] = []
                         if ctx.exprList() is not None:
-                            args_info = [self._info_expr(e) for e in ctx.exprList().expr()]  
-                        self._validar_argumentos(ctx.ID(1).symbol, simbolo_metodo, args_info)  
+                            args_info = [self._info_expr(e) for e in ctx.exprList().expr()]
+                        self._validar_argumentos(ctx.ID(1).symbol, simbolo_metodo, args_info)
                         return simbolo_metodo.tipo
             if ctx.exprList() is not None:
                 self.visit(ctx.exprList())
@@ -761,19 +778,17 @@ class AnalisadorSemantico(JSSimplificadoVisitor):
         simbolo = self.exigir_declarado(ctx.ID(0), {"funcao"}, "funcao")
         args_info: list[tuple[str | None, int]] = []
         if ctx.exprList() is not None:
-            args_info = [self._info_expr(e) for e in ctx.exprList().expr()] 
+            args_info = [self._info_expr(e) for e in ctx.exprList().expr()]
 
         if simbolo is not None:
-            self._validar_argumentos(ctx.ID(0).symbol, simbolo, args_info)  
+            self._validar_argumentos(ctx.ID(0).symbol, simbolo, args_info)
             return simbolo.tipo
         return None
-    
+
     def visitCasting(self, ctx: JSSimplificadoParser.CastingContext) -> str | None:
-        # Avalia a expressão interna para garantir que não tenha erros em seu conteúdo
         self.tipo_expr(ctx.expr())
-        # O casting forçará o retorno para o tipo primitivo escrito antes dos parênteses
         return ctx.tipo().getText()
-    
+
     def visitExprId(self, ctx: JSSimplificadoParser.ExprIdContext):
         simbolo = self.exigir_declarado(ctx.ID(), {"variavel", "parametro", "atributo"})
         if simbolo is not None:
