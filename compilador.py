@@ -52,6 +52,16 @@ class ColetorDeErros(ErrorListener):
 
 def analisar_codigo(codigo: str) -> list[Diagnostico]:
     entrada = InputStream(codigo)
+    return analisar_entrada(entrada)
+
+
+def analisar_arquivo(caminho: str) -> list[Diagnostico]:
+    with open(caminho, "r", encoding="utf-8") as arquivo:
+        codigo = arquivo.read()
+    return analisar_codigo(codigo)
+
+
+def analisar_entrada(entrada) -> list[Diagnostico]:
 
     erros_lexicos = ColetorDeErros("lexico")
     lexer = JSSimplificadoLexer(entrada)
@@ -79,8 +89,15 @@ def analisar_codigo(codigo: str) -> list[Diagnostico]:
 
 
 def main() -> int:
-    codigo = sys.stdin.read()
-    diagnosticos = analisar_codigo(codigo)
+    if len(sys.argv) != 2:
+        print("Uso: python3 compilador.py <arquivo.jss>")
+        return 1
+
+    try:
+        diagnosticos = analisar_arquivo(sys.argv[1])
+    except FileNotFoundError:
+        print(f"Erro: arquivo '{sys.argv[1]}' nao encontrado.")
+        return 1
 
     if diagnosticos:
         for diagnostico in diagnosticos:
