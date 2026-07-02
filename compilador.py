@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from antlr4 import CommonTokenStream, InputStream
 from antlr4.error.ErrorListener import ErrorListener
@@ -9,6 +10,7 @@ from antlr4.error.ErrorListener import ErrorListener
 from JSSimplificadoLexer import JSSimplificadoLexer
 from JSSimplificadoParser import JSSimplificadoParser
 from AnalisadorSemantico import analisar_arvore
+from GeradorIR import ErroGeracaoIR, gerar_jasmin
 
 
 @dataclass(frozen=True)
@@ -89,21 +91,51 @@ def analisar_entrada(entrada) -> list[Diagnostico]:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2:
         print("Uso: python3 compilador.py <arquivo.jss>")
+        print("Uso: python3 compilador.py --jasmin <arquivo.jss> [saida.j]")
         return 1
 
-    try:
-        diagnosticos = analisar_arquivo(sys.argv[1])
-    except FileNotFoundError:
-        print(f"Erro: arquivo '{sys.argv[1]}' nao encontrado.")
+    modo_jasmin = sys.argv[1] == "--jasmin"
+    if (not modo_jasmin and len(sys.argv) != 2) or (modo_jasmin and len(sys.argv) not in (3, 4)):
+        print("Uso: python3 compilador.py <arquivo.jss>")
+        print("Uso: python3 compilador.py --jasmin <arquivo.jss> [saida.j]")
         return 1
+
+    caminho_entrada = sys.argv[2] if modo_jasmin else sys.argv[1]
+
+    try:
+        with open(caminho_entrada, "r", encoding="utf-8") as arquivo:
+            codigo = arquivo.read()
+    except FileNotFoundError:
+        print(f"Erro: arquivo '{caminho_entrada}' nao encontrado.")
+        return 1
+
+    diagnosticos = analisar_codigo(codigo)
 
     if diagnosticos:
         for diagnostico in diagnosticos:
             print(diagnostico.formatar())
         print("Programa rejeitado.")
         return 1
+
+    if modo_jasmin:
+        caminho_fonte = Path(caminho_entrada)
+        caminho_saida = (
+            Path(sys.argv[3])
+            if len(sys.argv) == 4
+            else Path("codigo_intermediario") / f"{caminho_fonte.stem}.j"
+        )
+        caminho_saida.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            codigo_jasmin = gerar_jasmin(codigo, caminho_fonte.stem)
+        except ErroGeracaoIR as erro:
+            print(f"Erro na geracao de IR: {erro}")
+            return 1
+        with open(caminho_saida, "w", encoding="utf-8") as arquivo:
+            arquivo.write(codigo_jasmin)
+        print(f"Codigo Jasmin gerado em: {caminho_saida}")
+        return 0
 
     print("Programa aceito: analises lexica, sintatica e semantica concluidas com sucesso.")
     return 0

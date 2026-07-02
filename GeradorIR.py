@@ -1,246 +1,286 @@
-from llvmlite import ir
-from antlr4 import FileStream, CommonTokenStream
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from antlr4 import CommonTokenStream, InputStream
 
 from JSSimplificadoLexer import JSSimplificadoLexer
 from JSSimplificadoParser import JSSimplificadoParser
 from JSSimplificadoVisitor import JSSimplificadoVisitor
 
-import os
-import sys
 
-from llvmlite import ir
+@dataclass(frozen=True)
+class ValorIR:
+    tipo: str
+
+
+@dataclass(frozen=True)
+class SimboloIR:
+    tipo: str
+    indice: int
+    is_const: bool = False
+
+
+class ErroGeracaoIR(Exception):
+    pass
+
+
+def nome_classe_valido(nome: str) -> str:
+    nome = re.sub(r"[^a-zA-Z0-9_]", "_", nome)
+    if not nome or nome[0].isdigit():
+        nome = f"Programa_{nome}"
+    return nome
+
+
+def gerar_jasmin(codigo: str, nome_classe: str = "Programa") -> str:
+    entrada = InputStream(codigo)
+    lexer = JSSimplificadoLexer(entrada)
+    tokens = CommonTokenStream(lexer)
+    parser = JSSimplificadoParser(tokens)
+    tree = parser.prog()
+
+    gerador = GeradorIR(nome_classe_valido(nome_classe))
+    return gerador.gerar(tree)
+
 
 class GeradorIR(JSSimplificadoVisitor):
+    def __init__(self, nome_classe: str) -> None:
+        self.nome_classe = nome_classe
+        self.codigo: list[str] = []
+        self.escopos: list[dict[str, SimboloIR]] = [{}]
+        self.proximo_local = 1
+        self.stack_limit = 64
 
-    def __init__(self):
-        self.module = ir.Module(name="jss")
-        self.builder   = None   
-        self.variaveis = {}    
+    def gerar(self, tree) -> str:
+        self.emit(f".class public {self.nome_classe}")
+        self.emit(".super java/lang/Object")
+        self.emit("")
+        self.emit_metodo_construtor_padrao()
+        self.emit_metodo_main_inicio()
+        self.visit(tree)
+        self.emit("return")
+        self.emit(".end method")
+        self.emit("")
+        return "\n".join(self.codigo)
 
-        self.tipo_int = ir.IntType(32)
-        self.tipo_real = ir.DoubleType()
-        self.tipo_bool = ir.IntType(1)
-        self.tipo_str  = ir.PointerType(ir.IntType(8))
+    def emit_metodo_construtor_padrao(self) -> None:
+        self.emit(".method public <init>()V")
+        self.emit("aload_0")
+        self.emit("invokespecial java/lang/Object/<init>()V")
+        self.emit("return")
+        self.emit(".end method")
+        self.emit("")
 
-    ##──────────── Retornamos o tipo identificado e registrado em nossa arquitetura ────────────
+    def emit_metodo_main_inicio(self) -> None:
+        self.emit(".method public static main([Ljava/lang/String;)V")
+        self.emit(f".limit stack {self.stack_limit}")
+        self.emit(".limit locals 256")
 
-    def llvm_tipo(self, tipo_str):
-        if(tipo_str == "int"):
-            return self.tipo_int
-        if(tipo_str == "real"):
-            return self.tipo_real
-        if(tipo_str == "bool"):
-            return self.tipo_bool
-        if tipo_str == 'str':  return self.tipo_str
-        return self.tipo_int
-    
+    def emit(self, linha: str) -> None:
+        self.codigo.append(linha)
 
-    
-    ##──────────── Visitando expressões literais ────────────
-    ## ao visitar o nó ctx capturamos seu conteudo e devolvemos uma constante com uma tupla(tipo, valor)
+    def abrir_escopo(self) -> None:
+        self.escopos.append({})
 
-    def visitExprBool(self,ctx):
-        #convertemos true e false para 0 ou 1
-        value = 1 if(ctx.getText() == "true") else 0
-        return ir.Constant(self.tipo_bool, value)
+    def fechar_escopo(self) -> None:
+        if len(self.escopos) > 1:
+            self.escopos.pop()
 
-    def visitExprInt(self,ctx):
-        #convertemos o texto da expressao inteira em int
-        value = int(ctx.getText())#getText é o conteudo da expressao
-        return ir.Constant(self.tipo_int, value)
+    def declarar_variavel(self, nome: str, tipo: str, is_const: bool = False) -> SimboloIR:
+        escopo_atual = self.escopos[-1]
+        if nome in escopo_atual:
+            raise ErroGeracaoIR(f"Variavel '{nome}' redeclarada no mesmo escopo.")
 
-    def visitExprReal(self,ctx):
-        value = float(ctx.getText())
-        return ir.Constant(self.tipo_real, value)
-    
-    def visitExprStr(self,ctx):
+        simbolo = SimboloIR(
+            tipo=tipo,
+            indice=self.novo_local(tipo),
+            is_const=is_const,
+        )
+        escopo_atual[nome] = simbolo
+        return simbolo
+
+    def buscar_variavel(self, nome: str) -> SimboloIR | None:
+        for escopo in reversed(self.escopos):
+            simbolo = escopo.get(nome)
+            if simbolo is not None:
+                return simbolo
         return None
-    
-    #visitamos o valor da expressão e idenficamos se o ID foi declarado antes
-    def visitExprId(self,ctx):
-        id_var = ctx.getText()
-        if(id_var not in self.variaveis):
-            print (f"Erro: variável '{id_var}' não declarada")
-            return None
 
-        #alloca é o endereço que a variável está armazenada
-        #tipo_str é o tipo
-        #o nome só importa para abstração do usuário
-        alloca, tipo_str = self.variaveis[id_var]
+    def novo_local(self, tipo: str) -> int:
+        indice = self.proximo_local
+        self.proximo_local += 2 if tipo == "real" else 1
+        return indice
 
-        #retorna o valor armazenado no endereço alloca
-        #cria a instrução e vai direto para o IR
-        return self.builder.load(alloca, id_var)
-    
-    # retornamos um valor None de tipo str.
-    def visitExprNull(self, ctx):
-        return ir.Constant(self.tipo_str, None)
-    
-    ##──────────── trabalhando com operando ────────────
+    def instrucao_load(self, simbolo: SimboloIR) -> str:
+        if simbolo.tipo == "real":
+            return "dload"
+        if simbolo.tipo == "str":
+            return "aload"
+        return "iload"
 
-    def visitExprIncDec(self,ctx):
+    def instrucao_store(self, simbolo: SimboloIR) -> str:
+        if simbolo.tipo == "real":
+            return "dstore"
+        if simbolo.tipo == "str":
+            return "astore"
+        return "istore"
 
-        ##incremento e decremento pre fixado.
+    def descritor_print(self, tipo: str) -> str:
+        if tipo == "real":
+            return "D"
+        if tipo == "str":
+            return "Ljava/lang/String;"
+        if tipo == "bool":
+            return "Z"
+        return "I"
 
-        id_var = ctx.expr().getText()
-        if(id_var not in self.variaveis):
-            print(f"Erro: variável '{id_var}' não declarada")
-            return None
-        
-        alloca,tipo = self.variaveis[id_var]
-        value = self.builder.load(alloca,id_var)
-        x = ir.Constant(self.llvm_tipo(tipo,1))
-        
-        if(ctx.op.text == "++"):
-            new_value = self.builder.add(value,x)
-        elif(ctx.op.text == "--"):
-            new_value = self.builder.sub(value,x)
+    def emitir_valor_padrao(self, tipo: str) -> None:
+        if tipo == "real":
+            self.emit("dconst_0")
+        elif tipo == "str":
+            self.emit('ldc ""')
+        else:
+            self.emit("iconst_0")
 
-        self.builder.store(new_value,alloca)
-        return new_value
+    def is_const_decl(self, ctx) -> bool:
+        return ctx.CONST() is not None
 
-    def visitExprUnary(self,ctx):
+    def visitProg(self, ctx: JSSimplificadoParser.ProgContext):
+        for decl in ctx.decl():
+            funcao = decl.funcDecl()
+            if funcao is not None and funcao.ID().getText() == "main":
+                self.visit(funcao.bloco())
+            elif decl.varDecl() is not None:
+                self.visit(decl.varDecl())
 
-        value = self.visit(ctx.expr())
-        operacao = ctx.op.text
-        
-        if(value is None):
-            return None
-        
-        #nao vamos atualizar o valor da variavel pois ele so retorna o valor negativo ou o not
-        if(operacao == "-"):
-            return self.builder.neg(value)
+        for stmt in ctx.stmt():
+            self.visit(stmt)
 
-        elif(operacao == "!"):
-            return self.builder.not_(value)
-        
-        return value
+        return None
 
-    def visitExprPow(self,ctx):
+    def visitBloco(self, ctx: JSSimplificadoParser.BlocoContext):
+        self.abrir_escopo()
+        for stmt in ctx.stmt():
+            self.visit(stmt)
+        self.fechar_escopo()
+        return None
 
-        value_x = self.visit(ctx.expr(0))
-        value_y = self.visit(ctx.expr(1))
-        operacao = ctx.op.text
+    def visitStmtVarDecl(self, ctx: JSSimplificadoParser.StmtVarDeclContext):
+        return self.visit(ctx.varDecl())
 
-        if((value_x is None)or(value_y is None)):
-            return None
-        
-        double_value_x = self.builder.sitofp(value_x, self.tipo_real)
-        double_value_y = self.builder.sitofp(value_y, self.tipo_real)
-        double_func = self.module.declare_intrinsic('llvm.pow', [self.tipo_real])
+    def visitVarSimples(self, ctx: JSSimplificadoParser.VarSimplesContext):
+        tipo = ctx.tipo().getText()
+        ids = ctx.ID()
+        is_const = self.is_const_decl(ctx)
 
-        return  self.builder.call(double_func, [double_value_x, double_value_y])
-    
-    def visitExprMulDiv(self,ctx):
+        for token_id in ids:
+            simbolo = self.declarar_variavel(token_id.getText(), tipo, is_const=is_const)
+            if ctx.expr() is not None and token_id == ids[0]:
+                self.visit(ctx.expr())
+            else:
+                self.emitir_valor_padrao(tipo)
+            self.emit(f"{self.instrucao_store(simbolo)} {simbolo.indice}")
 
-        value_x = self.visit(ctx.expr(0))
-        value_y = self.visit(ctx.expr(1))
-        operador = ctx.op.text
+        return None
 
-        if((value_x is None) or (value_y is None)):
-            return None
-    
-        if (operador == "*"):
-            return self.builder.mul(value_x, value_y)
-        if (operador == "/"):
-            return self.builder.sdiv(value_x, value_y)
-        if (operador == "%"):
-            return self.builder.srem(value_x, value_y)
+    def visitStmtAssign(self, ctx: JSSimplificadoParser.StmtAssignContext):
+        nome = ctx.ID().getText()
+        simbolo = self.buscar_variavel(nome)
+        if simbolo is None:
+            raise ErroGeracaoIR(f"Variavel '{nome}' nao declarada.")
+        if simbolo.is_const:
+            raise ErroGeracaoIR(f"Constante '{nome}' nao pode ser alterada.")
 
-    def visitExprAddSub(self, ctx):
-        value_x = self.visit(ctx.expr(0))
-        value_y = self.visit(ctx.expr(1))
-        operador = ctx.op.text
+        self.visit(ctx.expr())
+        self.emit(f"{self.instrucao_store(simbolo)} {simbolo.indice}")
+        return None
 
-        if ((value_x is None) or (value_y is None)):
-            return None
-        
-        if(operador == "+"):
-            return self.builder.add(value_x, value_y)
-        if(operador == '-'): 
-            return self.builder.sub(value_x, value_y)
+    def visitStmtConsoleLog(self, ctx: JSSimplificadoParser.StmtConsoleLogContext):
+        expr_list = ctx.consolelog().exprList()
+        if expr_list is not None:
+            for indice, expr in enumerate(expr_list.expr()):
+                if indice > 0:
+                    self.emit_print_constante(" ")
+                self.emit("getstatic java/lang/System/out Ljava/io/PrintStream;")
+                valor = self.visit(expr)
+                tipo = valor.tipo if isinstance(valor, ValorIR) else "str"
+                self.emit(
+                    "invokevirtual java/io/PrintStream/print"
+                    f"({self.descritor_print(tipo)})V"
+                )
 
-    def visitExprRel(self, ctx):
+        self.emit("getstatic java/lang/System/out Ljava/io/PrintStream;")
+        self.emit("invokevirtual java/io/PrintStream/println()V")
+        return None
 
-        value_x = self.visit(ctx.expr(0))
-        value_y = self.visit(ctx.expr(1))
-        operador = ctx.op.text
+    def emit_print_constante(self, texto: str) -> None:
+        self.emit("getstatic java/lang/System/out Ljava/io/PrintStream;")
+        self.emit(f'ldc "{texto}"')
+        self.emit("invokevirtual java/io/PrintStream/print(Ljava/lang/String;)V")
 
-        if ((value_x is None) or (value_y is None)):
-            return None
-        
-        relacionais = {'>':'>', '>=':'>=', '<':'<', '<=':"<="}
+    def visitExprInt(self, ctx: JSSimplificadoParser.ExprIntContext):
+        self.emit(f"ldc {ctx.getText()}")
+        return ValorIR("int")
 
-        return self.builder.icmp_signed(relacionais[operador], value_x, value_y)
+    def visitExprReal(self, ctx: JSSimplificadoParser.ExprRealContext):
+        self.emit(f"ldc2_w {ctx.getText()}")
+        return ValorIR("real")
 
-    def visitExprEq(self, ctx):
-        value_x = self.visit(ctx.expr(0))
-        value_y = self.visit(ctx.expr(1))
-        operador = ctx.op.text
+    def visitExprStr(self, ctx: JSSimplificadoParser.ExprStrContext):
+        self.emit(f"ldc {ctx.getText()}")
+        return ValorIR("str")
 
-        if ((value_x is None) or (value_y is None)):
-            return None
+    def visitExprBool(self, ctx: JSSimplificadoParser.ExprBoolContext):
+        self.emit("iconst_1" if ctx.getText() == "true" else "iconst_0")
+        return ValorIR("bool")
 
-        return self.builder.icmp_signed(operador, value_x, value_y)
+    def visitExprId(self, ctx: JSSimplificadoParser.ExprIdContext):
+        nome = ctx.ID().getText()
+        simbolo = self.buscar_variavel(nome)
+        if simbolo is None:
+            raise ErroGeracaoIR(f"Variavel '{nome}' nao declarada.")
+        self.emit(f"{self.instrucao_load(simbolo)} {simbolo.indice}")
+        return ValorIR(simbolo.tipo)
 
-    def visitExprAnd(self, ctx):
-        value_x = self.visit(ctx.expr(0))
-        value_y = self.visit(ctx.expr(1))
-
-        if ((value_x is None) or (value_y is None)):
-            return None
-
-        return self.builder.and_(value_x, value_y)
-
-    def visitExprOr(self, ctx):
-        value_x = self.visit(ctx.expr(0))
-        value_y = self.visit(ctx.expr(1))
-
-        if ((value_x is None) or (value_y is None)):
-            return None
-
-        return self.builder.or_(value_x, value_y)
-
-    def visitExprParen(self, ctx):
+    def visitExprParen(self, ctx: JSSimplificadoParser.ExprParenContext):
         return self.visit(ctx.expr())
 
-    def visitExprAtrib(self, ctx):
-        id_var = ctx.expr(0).getText()
-        operador = ctx.op.text
+    def visitExprAddSub(self, ctx: JSSimplificadoParser.ExprAddSubContext):
+        esquerdo = self.visit(ctx.expr(0))
+        direito = self.visit(ctx.expr(1))
+        tipo = self.tipo_numerico_resultante(esquerdo, direito)
+        if tipo == "real":
+            self.emit("dadd" if ctx.op.text == "+" else "dsub")
+        else:
+            self.emit("iadd" if ctx.op.text == "+" else "isub")
+        return ValorIR(tipo)
 
-        if (id_var not in self.variaveis):
-            print(f"Erro: variável '{id_var}' não declarada.")
-            return None
+    def visitExprMulDiv(self, ctx: JSSimplificadoParser.ExprMulDivContext):
+        esquerdo = self.visit(ctx.expr(0))
+        direito = self.visit(ctx.expr(1))
+        tipo = self.tipo_numerico_resultante(esquerdo, direito)
+        if tipo == "real":
+            self.emit("dmul" if ctx.op.text == "*" else "ddiv")
+        else:
+            self.emit("imul" if ctx.op.text == "*" else "idiv")
+        return ValorIR(tipo)
 
-        alloca, tipo_str = self.variaveis[id_var]
-        value_expr = self.visit(ctx.expr(1))
+    def visitExprMod(self, ctx: JSSimplificadoParser.ExprModContext):
+        self.visit(ctx.expr(0))
+        self.visit(ctx.expr(1))
+        self.emit("irem")
+        return ValorIR("int")
 
-        if (value_expr is None):
-            return None
+    def visitExprUnary(self, ctx: JSSimplificadoParser.ExprUnaryContext):
+        valor = self.visit(ctx.expr())
+        if ctx.op.text == "-":
+            self.emit("dneg" if valor.tipo == "real" else "ineg")
+        return valor
 
-        if (operador == '='):
-            self.builder.store(value_expr, alloca)
-            return value_expr
-
-        value_atual = self.builder.load(alloca, id_var)
-
-        if (operador == '+='):
-            resultado = self.builder.add(value_atual, value_expr)
-        elif (operador == '-='):
-            resultado = self.builder.sub(value_atual, value_expr)
-        elif (operador == '*='):
-            resultado = self.builder.mul(value_atual, value_expr)
-        elif (operador == '/='):
-            resultado = self.builder.sdiv(value_atual, value_expr)
-        elif (operador == '%='):
-            resultado = self.builder.srem(value_atual, value_expr)
-
-        self.builder.store(resultado, alloca)
-        return resultado
-
-
-        
-
-
-
-
+    def tipo_numerico_resultante(self, esquerdo, direito) -> str:
+        if isinstance(esquerdo, ValorIR) and esquerdo.tipo == "real":
+            return "real"
+        if isinstance(direito, ValorIR) and direito.tipo == "real":
+            return "real"
+        return "int"
