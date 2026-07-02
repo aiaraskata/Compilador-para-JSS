@@ -1,12 +1,13 @@
-# Compilador JSS — Front-end
+# Compilador JSS
 
-Front-end para a linguagem Java Script Simplificado (JSS), implementado em
+Compilador para a linguagem Java Script Simplificado (JSS), implementado em
 Python com ANTLR 4.
 
-O projeto realiza análise léxica, sintática e semântica. O compilador recebe o
-caminho de um arquivo `.jss`, lê o conteúdo com `open`, executa as análises e
-informa se o programa foi aceito ou rejeitado. Em caso de erro, a saída indica
-categoria, linha e coluna.
+O projeto realiza análise léxica, sintática, semântica e possui uma base inicial
+de back-end para geração de código Jasmin. O compilador recebe o caminho de um
+arquivo `.jss`, lê o conteúdo com `open`, executa as análises e informa se o
+programa foi aceito ou rejeitado. Em caso de erro, a saída indica categoria,
+linha e coluna.
 
 ## Requisitos
 
@@ -54,6 +55,81 @@ Programa rejeitado.
 
 O processo retorna código `0` para programas aceitos e `1` para programas
 rejeitados.
+
+## Geração de código Jasmin
+
+A segunda etapa do projeto usa Jasmin como linguagem intermediária do back-end.
+Para gerar o arquivo `.j`, use:
+
+```bash
+python3 compilador.py --jasmin exemplos/backend_minimo.jss
+```
+
+Por padrão, o arquivo é salvo em `codigo_intermediario/`:
+
+```text
+codigo_intermediario/backend_minimo.j
+```
+
+Também é possível informar manualmente o caminho de saída:
+
+```bash
+python3 compilador.py --jasmin exemplos/backend_minimo.jss codigo_intermediario/Saida.j
+```
+
+Antes de gerar Jasmin, o compilador executa as análises léxica, sintática e
+semântica. Se houver erro no front-end, o código intermediário não é gerado.
+
+Nesta infraestrutura inicial do back-end, já são emitidos:
+
+- classe Jasmin com método `main`;
+- construtor padrão;
+- variáveis locais primitivas;
+- literais `int`, `real`, `str` e `bool`;
+- atribuições simples;
+- expressões aritméticas básicas para inteiros;
+- `console.log` usando `java/lang/System/out`.
+
+Exemplo de entrada:
+
+```jss
+let int x = 10;
+let int y = 20;
+let int soma = x + y;
+
+console.log("Soma:", soma);
+```
+
+Trecho de Jasmin gerado:
+
+```jasmin
+.class public backend_minimo
+.super java/lang/Object
+
+.method public static main([Ljava/lang/String;)V
+.limit stack 64
+.limit locals 256
+ldc 10
+istore 1
+ldc 20
+istore 2
+iload 1
+iload 2
+iadd
+istore 3
+...
+.end method
+```
+
+Para montar e executar o `.j`, é necessário ter o Jasmin disponível. Um fluxo
+esperado é:
+
+```bash
+java -jar jasmin.jar codigo_intermediario/backend_minimo.j
+java -cp codigo_intermediario backend_minimo
+```
+
+O `jasmin.jar` não está incluído no repositório.
 
 ## Como a entrada é lida
 
@@ -107,6 +183,17 @@ Percorre a árvore usando `JSSimplificadoVisitor` e valida regras como:
 - uso de arrays e matrizes com quantidade correta de índices;
 - uso básico de classes, objetos, atributos, métodos e `this`.
 
+### Back-end Jasmin
+
+O back-end inicial fica em `GeradorIR.py`. O IR escolhido para a segunda etapa
+foi Jasmin. O gerador percorre a árvore sintática com
+`JSSimplificadoVisitor` e emite instruções Jasmin em texto.
+
+Essa issue implementa a infraestrutura do back-end: geração de arquivo `.j`,
+integração com o `compilador.py` e suporte inicial a programas simples. A
+cobertura completa de estruturas de controle, funções, arrays e classes no
+Jasmin deve ser evoluída nas próximas issues.
+
 ## Recursos reconhecidos
 
 - tipos primitivos `int`, `real`, `str` e `bool`;
@@ -153,26 +240,6 @@ Decisão implementada: os casts seguem a proposta de conversão explícita entre
 tipos primitivos da especificação. Conversões para `str` são aceitas para
 valores primitivos, e conversões entre `int`, `real` e `bool` são tratadas como
 intercambiáveis.
-
-## Decisões de projeto além do PDF
-
-Algumas escolhas foram feitas para atender aos testes e ao comportamento
-esperado durante a apresentação:
-
-- Comandos soltos no escopo global são aceitos, não apenas declarações globais.
-- Arrays podem ter mais de uma dimensão.
-- Funções podem receber arrays com dimensão fixa, por exemplo `int[5] arr`.
-- Funções podem retornar arrays, por exemplo `function int[5] criarSequencia(...)`.
-- Arrays podem ser inicializados por chamada de função, como
-  `let int[5] sequencia = criarSequencia(100);`.
-- Classes podem ter atributos que são arrays/matrizes.
-- Constructors aceitam bloco comum de comandos, permitindo `for`, `while`,
-  `console.log` etc.
-- Acesso a array em atributo de objeto ou `this` é aceito, por exemplo
-  `this.matriz[i][j]`.
-
-Essas decisões tornam a linguagem um pouco mais permissiva que a descrição
-mínima do PDF, mas preservam a ideia de JavaScript Simplificado usada nos testes.
 
 ## Exemplos de execução
 
